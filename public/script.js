@@ -6,7 +6,7 @@ window.onload = function() {
       document.getElementById('spinner').classList.remove('hidden');
       document.getElementById('designerInfo').classList.add('hidden');
   
-      const response = await fetch("/find-free-designer");
+      const response = await fetch("/api/find-free-designer");
       const data = await response.json();
       console.log("Received response:", data);
   
