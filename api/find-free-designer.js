@@ -5,49 +5,52 @@ const DATABASE_ID = process.env.NOTION_DATABASE_ID;
 
 const notion = new Client({ auth: NOTION_API_KEY });
 
-const fetchFreeDesignerNames = async () => {
+module.exports = async (req, res) => {
+  // Filter out tasks with "Archived" status
   const response = await notion.databases.query({
-    database_id: DATABASE_ID
+    database_id: DATABASE_ID,
+    filter: {
+      property: "Status",
+      status: {
+        does_not_equal: "Archived"
+      }
+    }
   });
 
   const tasks = response.results;
-  const designers = new Map();
+  
+  // Dictionary to hold designer ID and their statuses count
+  const designerStatusCounts = {};
 
   for (const task of tasks) {
-    const statusObject = task.properties.Status.status;
+    const status = task.properties.Status.status.name;
     const assignedToArray = task.properties["Assigned To"].people;
 
-    if (statusObject && assignedToArray && statusObject.name !== "In Review") {
-      for (const user of assignedToArray) {
-        designers.set(user.id, (designers.get(user.id) || 0) + 1);
+    for (const user of assignedToArray) {
+      designerStatusCounts[user.id] = designerStatusCounts[user.id] || { inProgress: 0, notStartedOrInReview: 0 };
+
+      if (status === "In Progress") {
+        designerStatusCounts[user.id].inProgress++;
+      } else if (status === "Not Started" || status === "In Review") {
+        designerStatusCounts[user.id].notStartedOrInReview++;
       }
     }
   }
 
-  const sortedDesigners = [...designers.entries()].sort((a, b) => a[1] - b[1]);
+  // Find designers who have no "In Progress" tasks but have "Not Started" or "In Review" tasks
+  const potentialFreeDesigners = Object.entries(designerStatusCounts).filter(([_, counts]) => {
+    return counts.inProgress === 0 && counts.notStartedOrInReview > 0;
+  });
 
-  const designerNames = [];
-  for (const [designerId, _] of sortedDesigners) {
-    const userDetails = await notion.users.retrieve({ user_id: designerId });
-    designerNames.push({
+  // If we find potential free designers, return a random one among them
+  if (potentialFreeDesigners.length) {
+    const randomDesignerId = potentialFreeDesigners[Math.floor(Math.random() * potentialFreeDesigners.length)][0];
+    const userDetails = await notion.users.retrieve({ user_id: randomDesignerId });
+    res.json({
       name: userDetails.name,
       avatar: userDetails.avatar_url
     });
+  } else {
+    res.status(404).json({ error: "No free designers found." });
   }
-
-  return designerNames;
-};
-
-module.exports = async (req, res) => {
-    const designerNames = await fetchFreeDesignerNames();
-
-    if (designerNames && designerNames.length) {
-        const randomFreeDesigner = designerNames[Math.floor(Math.random() * designerNames.length)];
-        res.json({
-            name: randomFreeDesigner.name,
-            avatar: randomFreeDesigner.avatar
-        });
-    } else {
-        res.status(404).json({ error: "No free designers found." });
-    }
 };
