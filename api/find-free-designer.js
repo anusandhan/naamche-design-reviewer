@@ -18,8 +18,7 @@ module.exports = async (req, res) => {
   });
 
   const tasks = response.results;
-  
-  // Dictionary to hold designer ID and their statuses count
+
   const designerStatusCounts = {};
 
   for (const task of tasks) {
@@ -37,20 +36,36 @@ module.exports = async (req, res) => {
     }
   }
 
-  // Find designers who have no "In Progress" tasks but have "Not Started" or "In Review" tasks
+  let selectedDesignerId = null;
+
+  // 1st Priority: Designers with tasks that are "Not Started" or "In Review" but not "In Progress"
   const potentialFreeDesigners = Object.entries(designerStatusCounts).filter(([_, counts]) => {
     return counts.inProgress === 0 && counts.notStartedOrInReview > 0;
   });
 
-  // If we find potential free designers, return a random one among them
   if (potentialFreeDesigners.length) {
-    const randomDesignerId = potentialFreeDesigners[Math.floor(Math.random() * potentialFreeDesigners.length)][0];
-    const userDetails = await notion.users.retrieve({ user_id: randomDesignerId });
+    selectedDesignerId = potentialFreeDesigners[Math.floor(Math.random() * potentialFreeDesigners.length)][0];
+  }
+
+  // 2nd Priority: Designers with the least number of "In Progress" tasks
+  if (!selectedDesignerId) {
+    const sortedDesigners = Object.entries(designerStatusCounts).sort((a, b) => a[1].inProgress - b[1].inProgress);
+    selectedDesignerId = sortedDesigners[0] && sortedDesigners[0][0];
+  }
+
+  // 3rd Priority: A random designer
+  if (!selectedDesignerId) {
+    const allDesignerIds = Object.keys(designerStatusCounts);
+    selectedDesignerId = allDesignerIds[Math.floor(Math.random() * allDesignerIds.length)];
+  }
+
+  if (selectedDesignerId) {
+    const userDetails = await notion.users.retrieve({ user_id: selectedDesignerId });
     res.json({
       name: userDetails.name,
       avatar: userDetails.avatar_url
     });
   } else {
-    res.status(404).json({ error: "No free designers found." });
+    res.status(404).json({ error: "No designers found." });
   }
 };
